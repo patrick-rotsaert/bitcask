@@ -8,6 +8,8 @@
 #include <memory>
 #include <regex>
 #include <filesystem>
+#include <optional>
+#include <functional>
 
 class datafile final
 {
@@ -36,11 +38,23 @@ public:
 	std::filesystem::path hint_path() const;
 
 	void build_keydir(keydir& kd);
-	void merge(const keydir& kd, datafile& merged_file, hintfile& hf);
 
 	value_type   get(const keydir::info& info);
 	keydir::info put(const std::string_view& key, const std::string_view& value, version_type version);
 	void         del(const std::string_view& key, version_type version);
 
-	void remove(); // don't use this instance afterwards!
+	struct record
+	{
+		struct value_info
+		{
+			value_pos_type   value_pos;
+			std::string_view value;
+			version_type     version;
+		};
+
+		std::string_view          key;
+		std::optional<value_info> value;
+	};
+
+	void traverse(std::function<void(const record&)> callback);
 };

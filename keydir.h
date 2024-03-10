@@ -51,4 +51,6 @@ public:
 	const info* get(const std::string_view& key) const;
 	void        put(const std::string_view& key, info&& info);
 	void        del(const std::string_view& key);
+
+	void clear();
 };

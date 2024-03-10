@@ -195,7 +195,7 @@ public:
 		auto header = record_header{};
 
 		header.version   = rec.version;
-		header.ksz       = rec.key.length(); //  TODO: check limits
+		header.ksz       = rec.key.length();
 		header.value_sz  = rec.value_sz;
 		header.value_pos = rec.value_pos;
 		header.init_crc();

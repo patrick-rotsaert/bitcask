@@ -15,9 +15,18 @@ public:
 		this->datadir_.build_keydir(this->keydir_);
 	}
 
+	off64_t max_file_size() const
+	{
+		return this->datadir_.max_file_size();
+	}
+
+	void max_file_size(off64_t size)
+	{
+		return this->datadir_.max_file_size(size);
+	}
+
 	std::optional<value_type> get(const std::string_view& key)
 	{
-		// TODO: lock
 		const auto info = this->keydir_.get(key);
 		if (info)
 		{
@@ -31,13 +40,11 @@ public:
 
 	void put(const std::string_view& key, const std::string_view& value)
 	{
-		// TODO: lock
 		this->keydir_.put(key, this->datadir_.put(key, value, this->keydir_.next_version()));
 	}
 
 	void del(const std::string_view& key)
 	{
-		// TODO: lock
 		this->datadir_.del(key, this->keydir_.next_version());
 		this->keydir_.del(key);
 	}
@@ -51,6 +58,16 @@ public:
 bitcask::bitcask(const std::filesystem::path& directory)
     : pimpl_{ std::make_unique<impl>(directory) }
 {
+}
+
+off64_t bitcask::max_file_size() const
+{
+	return this->pimpl_->max_file_size();
+}
+
+void bitcask::max_file_size(off64_t size)
+{
+	return this->pimpl_->max_file_size(size);
 }
 
 bitcask::~bitcask() noexcept

@@ -42,3 +42,8 @@ void keydir::del(const std::string_view& key)
 		this->map_.erase(it);
 	}
 }
+
+void keydir::clear()
+{
+	this->map_.clear();
+}

@@ -21,6 +21,9 @@ public:
 	datadir(const datadir&)            = delete;
 	datadir& operator=(const datadir&) = delete;
 
+	off64_t max_file_size() const;
+	void    max_file_size(off64_t size);
+
 	void build_keydir(keydir& kd);
 
 	value_type   get(const keydir::info& info);

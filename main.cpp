@@ -13,6 +13,8 @@ int main()
 
 		auto bc = bitcask{ "/tmp/bitcask" };
 
+		bc.max_file_size(1024u);
+
 		{
 			const auto now = std::chrono::steady_clock::now();
 			fmt::print(stderr, "Bitcask construction took {}s\n", std::chrono::duration<double>{ now - start }.count());

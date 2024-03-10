@@ -1,5 +1,6 @@
 #include "datadir.h"
 #include "datafile.h"
+#include "hintfile.h"
 #include "keydir.h"
 #include "file.h"
 
@@ -10,6 +11,7 @@
 #include <set>
 #include <vector>
 #include <map>
+#include <algorithm>
 #include <cassert>
 
 #include <fcntl.h>
@@ -19,10 +21,9 @@ namespace fs = std::filesystem;
 class datadir::impl final
 {
 	fs::path                               directory_;
-	fs::path                               merge_directory_;
 	std::vector<std::unique_ptr<datafile>> files_;
 	std::map<file_id_type, datafile*>      id_map_;
-	off_t                                  max_file_size_;
+	off_t                                  max_file_size_ = 1024u * 1024u * 1024u;
 
 	void push_back_file(std::unique_ptr<datafile>&& file)
 	{
@@ -30,43 +31,48 @@ class datadir::impl final
 		this->files_.push_back(std::move(file));
 	}
 
-	datafile& active_file() const
+	void open(const std::set<std::string>& names)
 	{
-		assert(!this->files_.empty());
-		return *this->files_.back();
+		this->files_.clear();
+		this->id_map_.clear();
+
+		// The set is ordered alphabetically, meaning the last file in the set is the most recent file, i.e. the active file.
+		for (auto it = names.begin(); it != names.end();)
+		{
+			const auto& name    = *it;
+			const auto  path    = this->directory_ / name;
+			const auto  is_last = (++it == names.end());
+			this->push_back_file(std::make_unique<datafile>(file::open(path, is_last ? O_RDWR : O_RDONLY, 0664)));
+		}
+
+		if (this->files_.empty())
+		{
+			this->push_back_file(
+			    std::make_unique<datafile>(file::open(this->directory_ / datafile::make_filename(0u), O_RDWR | O_CREAT, 0664)));
+		}
 	}
 
-	std::vector<datafile*> immutable_files() const
+	datafile& active_file()
 	{
-		auto files = std::vector<datafile*>{};
-		if (this->files_.size() > 1u)
 		{
-			for (auto it = this->files_.begin(), end = this->files_.end() - 1; it != end; ++it)
+			assert(!this->files_.empty());
+			auto& active = *this->files_.back();
+			if (active.get_file().size() >= this->max_file_size_)
 			{
-				files.push_back(it->get());
+				active.get_file().reopen(O_RDONLY, 0664);
+				this->push_back_file(std::make_unique<datafile>(
+				    file::open(this->directory_ / datafile::make_filename(active.id() + 1), O_RDWR | O_CREAT, 0664)));
 			}
 		}
-		return files;
-	}
 
-	void close_active_file_if_necessary()
-	{
-		auto& active = this->active_file();
-		if (active.get_file().size() >= this->max_file_size_)
-		{
-			active.get_file().reopen(O_RDONLY, 0664);
-			this->push_back_file(std::make_unique<datafile>(
-			    file::open(this->directory_ / datafile::make_filename(active.id() + 1), O_RDWR | O_CREAT, 0664)));
-		}
+		return *this->files_.back();
 	}
 
 public:
 	explicit impl(const fs::path& directory)
 	    : directory_{ directory }
-	    , merge_directory_{ directory / "merge" }
 	    , files_{}
 	    , id_map_{}
-	    , max_file_size_{ 1024 } // TODO: parameterize
 	{
 		if (fs::exists(directory))
 		{
@@ -78,12 +84,6 @@ public:
 		else
 		{
 			fs::create_directories(directory);
-		}
-
-		if (fs::exists(this->merge_directory_))
-		{
-			// Remove stale merge directory
-			fs::remove_all(this->merge_directory_);
 		}
 
 		// TODO: create a lock file
@@ -98,20 +98,18 @@ public:
 			}
 		}
 
-		// Iterate over the data files and open all of them.
-		// The set is ordered alphabetically, meaning the last file in the set is the most recent file, i.e. the active file.
-		for (auto it = names.begin(); it != names.end();)
-		{
-			const auto& name    = *it;
-			const auto  path    = directory / name;
-			const auto  is_last = (++it == names.end());
-			this->push_back_file(std::make_unique<datafile>(file::open(path, is_last ? O_RDWR : O_RDONLY, 0664)));
-		}
+		// Open all data files
+		this->open(names);
+	}
 
-		if (this->files_.empty())
-		{
-			this->push_back_file(std::make_unique<datafile>(file::open(directory / datafile::make_filename(0u), O_RDWR | O_CREAT, 0664)));
-		}
+	off64_t max_file_size() const
+	{
+		return this->max_file_size_;
+	}
+
+	void max_file_size(off64_t size)
+	{
+		this->max_file_size_ = size;
 	}
 
 	void build_keydir(keydir& kd)
@@ -134,21 +132,11 @@ public:
 
 	keydir::info put(const std::string_view& key, const std::string_view& value, version_type version)
 	{
-		// TODO: investigate if this should be called from layer above,
-		// so that this isn't done before each and every write.
-		// The cost of this operation is a seek to EOF, not sure how big this cost is...
-		this->close_active_file_if_necessary();
-
 		return this->active_file().put(key, value, version);
 	}
 
 	void del(const std::string_view& key, version_type version)
 	{
-		// TODO: investigate if this should be called from layer above,
-		// so that this isn't done before each and every write.
-		// The cost of this operation is a seek to EOF, not sure how big this cost is...
-		this->close_active_file_if_necessary();
-
 		return this->active_file().del(key, version);
 	}
 
@@ -159,50 +147,111 @@ public:
 			return;
 		}
 
-		fs::create_directories(this->merge_directory_);
+		const auto merge_directory = this->directory_ / "merge";
 
-		const auto& last_immutable_file = **(this->files_.end() - 2u);
-
-		const auto merged_file_path = this->merge_directory_ / last_immutable_file.path().filename();
-		const auto hint_file_path   = this->merge_directory_ / last_immutable_file.hint_path().filename();
-
+		if (fs::exists(merge_directory))
 		{
-			const auto begin = this->files_.begin();
-			const auto end   = this->files_.end() - 1u;
-
-			{
-				auto merged_file = datafile{ file::open(merged_file_path, O_WRONLY | O_CREAT | O_TRUNC, 0664) };
-				auto hf          = hintfile{ file::open(hint_file_path, O_WRONLY | O_CREAT | O_TRUNC, 0664) };
-
-				std::for_each(begin, end, [&](const auto& file) { file->merge(kd, merged_file, hf); });
-			}
-
-			// remove all immutable files
-			std::for_each(begin, end, [](const auto& file) { file->remove(); });
-			this->files_.erase(begin, end);
+			fs::remove_all(merge_directory);
 		}
+		fs::create_directories(merge_directory);
 
-		// move the merged data file and hint to the data directory
-		const auto new_merged_file_path = this->directory_ / merged_file_path.filename();
-		const auto new_hint_file_path   = this->directory_ / hint_file_path.filename();
+		const auto begin = this->files_.begin();
+		const auto end   = this->files_.end() - 1u;
+		assert(end > begin);
 
-		fs::rename(merged_file_path, new_merged_file_path);
-		fs::rename(hint_file_path, new_hint_file_path);
+		auto dd = datadir{ merge_directory };
+		auto hf = std::unique_ptr<hintfile>{};
 
-		// push the merged file to front
-		assert(this->files_.size() == 1u);
-		this->files_.insert(this->files_.begin(), std::make_unique<datafile>(file::open(merged_file_path, O_RDONLY, 0664)));
+		std::for_each(begin, end, [&](const auto& file) {
+			file->traverse([&](const auto& rec) {
+				if (rec.value)
+				{
+					const auto& v        = rec.value.value();
+					const auto  key_info = kd.get(rec.key);
+					if (key_info && key_info->version == v.version)
+					{
+						const auto  info = dd.put(rec.key, v.value, v.version);
+						const auto& df   = dd.pimpl_->active_file();
+						if (!hf || hf->path() != df.hint_path())
+						{
+							hf = std::make_unique<hintfile>(file::open(df.hint_path(), O_WRONLY | O_CREAT, 0664));
+						}
+						hf->put(hintfile::hint{
+						    .version = info.version, .value_sz = info.value_sz, .value_pos = info.value_pos, .key = rec.key });
+					}
+				}
+			});
+		});
 
-		hintfile{ file::open(new_hint_file_path, O_RDONLY, 0664) }.build_keydir(kd, this->files_.front()->id());
+		// close the last hint file
+		hf.reset();
 
-		this->id_map_.clear();
-		std::for_each(this->files_.begin(), this->files_.end(), [&](const auto& file) { this->id_map_[file->id()] = file.get(); });
+		const auto last_merged_file_id = dd.pimpl_->files_.back()->id();
+
+		auto my_file_names = std::vector<std::string>{};
+		std::transform(this->files_.begin(), this->files_.end(), std::back_inserter(my_file_names), [](const auto& file) {
+			return file->path().filename().string();
+		});
+
+		auto merged_file_names = std::vector<std::string>{};
+		std::transform(dd.pimpl_->files_.begin(), dd.pimpl_->files_.end(), std::back_inserter(merged_file_names), [](const auto& file) {
+			return file->path().filename().string();
+		});
+
+		auto hint_file_names = std::vector<std::string>{};
+		std::transform(dd.pimpl_->files_.begin(), dd.pimpl_->files_.end(), std::back_inserter(hint_file_names), [](const auto& file) {
+			return file->hint_path().filename().string();
+		});
+
+		// TODO: lock me
+
+		// close all files
+		this->files_.clear();
+		dd.pimpl_->files_.clear();
+
+		// remove all of my files except the last, i.e. all immutable files
+		std::for_each(
+		    my_file_names.begin(), my_file_names.end() - 1u, [&](const auto& file_name) { fs::remove(this->directory_ / file_name); });
+
+		// rename my active file to id of last merged file + 1
+		const auto new_active_file_name = datafile::make_filename(last_merged_file_id + 1);
+		fs::rename(this->directory_ / my_file_names.back(), this->directory_ / new_active_file_name);
+
+		// move all merged files
+		std::for_each(merged_file_names.begin(), merged_file_names.end(), [&](const auto& file_name) {
+			fs::rename(merge_directory / file_name, this->directory_ / file_name);
+		});
+
+		// move all hint files
+		std::for_each(hint_file_names.begin(), hint_file_names.end(), [&](const auto& file_name) {
+			fs::rename(merge_directory / file_name, this->directory_ / file_name);
+		});
+
+		fs::remove(merge_directory);
+
+		auto names = std::set<std::string>{ merged_file_names.begin(), merged_file_names.end() };
+		names.insert(new_active_file_name);
+
+		this->open(names);
+
+		kd.clear();
+		this->build_keydir(kd);
 	}
 };
 
 datadir::datadir(const fs::path& directory)
     : pimpl_{ std::make_unique<impl>(directory) }
 {
+}
+
+off64_t datadir::max_file_size() const
+{
+	return this->pimpl_->max_file_size();
+}
+
+void datadir::max_file_size(off64_t size)
+{
+	return this->pimpl_->max_file_size(size);
 }
 
 datadir::~datadir() noexcept

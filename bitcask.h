@@ -21,6 +21,9 @@ public:
 	bitcask(const bitcask&)            = delete;
 	bitcask& operator=(const bitcask&) = delete;
 
+	off64_t max_file_size() const;
+	void    max_file_size(off64_t size);
+
 	std::optional<value_type> get(const std::string_view& key);
 	void                      put(const std::string_view& key, const std::string_view& value);
 	void                      del(const std::string_view& key);

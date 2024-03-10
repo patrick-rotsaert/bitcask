@@ -1,7 +1,6 @@
 #include "datafile.h"
 #include "file.h"
 #include "keydir.h"
-#include "hintfile.h"
 #include "basic_types.h"
 #include "hton.h"
 #include "crc32.h"
@@ -14,10 +13,15 @@
 #include <charconv>
 #include <stdexcept>
 #include <cstring>
+#include <limits>
 
 #include <fcntl.h>
 
 namespace {
+
+constexpr auto max_ksz          = std::numeric_limits<ksz_type>::max();
+constexpr auto deleted_value_sz = std::numeric_limits<value_sz_type>::max();
+constexpr auto max_value_sz     = deleted_value_sz - 1u;
 
 struct record_header
 {
@@ -49,8 +53,7 @@ struct record_header
 
 			std::memcpy(&this->value_sz, src, sizeof(this->value_sz));
 
-			this->crc = ntoh(this->crc);
-			//this->version   = ntoh(this->version);
+			this->crc      = ntoh(this->crc);
 			this->version  = ntoh(this->version);
 			this->ksz      = ntoh(this->ksz);
 			this->value_sz = ntoh(this->value_sz);
@@ -137,82 +140,6 @@ class datafile::impl final
 	std::unique_ptr<file> file_;
 	file_id_type          id_;
 
-	struct record
-	{
-		struct value_info
-		{
-			value_pos_type   value_pos;
-			std::string_view value;
-			version_type     version;
-		};
-
-		std::string_view          key;
-		std::optional<value_info> value;
-	};
-
-	void traverse(std::function<void(const record&)> callback)
-	{
-		this->file_->seek(0);
-
-		auto header = record_header{};
-
-		auto key_buffer = std::string{};
-		key_buffer.reserve(4096u);
-
-		auto value_buffer = std::string{};
-		value_buffer.reserve(4096u);
-
-		for (;;)
-		{
-			const auto position = this->file_->position();
-
-			auto crc = crc_type{};
-
-			if (!header.read(*this->file_, crc))
-			{
-				break;
-			}
-
-			// read the key
-			const auto key_buffer_size = std::max(key_buffer.capacity(), static_cast<std::string::size_type>(header.ksz));
-			key_buffer.resize(key_buffer_size);
-
-			this->file_->read(key_buffer.data(), header.ksz, file::read_mode::count);
-
-			crc = crc32_fast(key_buffer.data(), header.ksz, crc);
-
-			auto rec = record{ .key = std::string_view{ key_buffer }.substr(0, header.ksz), .value = std::nullopt };
-
-			// Not using a tombstone value as delete marker (as mentioned in https://riak.com/assets/bitcask-intro.pdf)
-			// because any value, no matter how unique, could not be used as a real value.
-			// Maybe that's just splitting hairs, but it's just not my idea of good practice.
-			// I'm using a -1 length as delete marker.
-			if (header.value_sz != static_cast<value_sz_type>(-1))
-			{
-				const auto value_pos = this->file_->position();
-
-				const auto value_buffer_size = std::max(value_buffer.capacity(), static_cast<std::string::size_type>(header.value_sz));
-				value_buffer.resize(value_buffer_size);
-
-				this->file_->read(value_buffer.data(), header.value_sz, file::read_mode::count);
-
-				crc = crc32_fast(value_buffer.data(), header.value_sz, crc);
-
-				rec.value = record::value_info{ .value_pos = value_pos,
-					                            .value     = std::string_view{ value_buffer }.substr(0, header.value_sz),
-					                            .version   = header.version };
-			}
-
-			if (crc != header.crc)
-			{
-				throw std::runtime_error{ fmt::format(
-					"{}: CRC mismatch in record at position {}", this->file_->path().string(), position) };
-			}
-
-			callback(rec);
-		}
-	}
-
 public:
 	explicit impl(std::unique_ptr<file>&& f)
 	    : file_{ std::move(f) }
@@ -255,30 +182,14 @@ public:
 			{
 				const auto& v = rec.value.value();
 				kd.put(rec.key,
-				       keydir::info{ .file_id = this->id_, .value_sz = v.value.size(), .value_pos = v.value_pos, .version = v.version });
+				       keydir::info{ .file_id   = this->id_,
+				                     .value_sz  = static_cast<value_sz_type>(v.value.size()),
+				                     .value_pos = v.value_pos,
+				                     .version   = v.version });
 			}
 			else
 			{
 				kd.del(rec.key);
-			}
-		});
-	}
-
-	void merge(const keydir& kd, datafile& merged_file, hintfile& hf)
-	{
-		this->traverse([&](const auto& rec) {
-			if (rec.value)
-			{
-				const auto& v    = rec.value.value();
-				const auto  info = kd.get(rec.key);
-				if (info && info->version == v.version)
-				{
-					const auto merged_info = merged_file.put(rec.key, v.value, v.version);
-					hf.put(hintfile::hint{ .version   = merged_info.version,
-					                       .value_sz  = merged_info.value_sz,
-					                       .value_pos = merged_info.value_pos,
-					                       .key       = rec.key });
-				}
 			}
 		});
 	}
@@ -297,14 +208,23 @@ public:
 
 	keydir::info put(const std::string_view& key, const std::string_view& value, version_type version)
 	{
+		if (key.length() > max_ksz)
+		{
+			throw std::runtime_error{ fmt::format("Key length exceeds limit of {}", max_ksz) };
+		}
+
+		if (value.length() > max_value_sz)
+		{
+			throw std::runtime_error{ fmt::format("Value length exceeds limit of {}", max_value_sz) };
+		}
+
 		this->file_->seek(0, SEEK_END);
 
 		auto header = record_header{};
 
-		//header.version   = std::time(nullptr);
 		header.version  = version;
-		header.ksz      = key.length();   //  TODO: check limits
-		header.value_sz = value.length(); //  TODO: check limits
+		header.ksz      = key.length();
+		header.value_sz = value.length();
 		header.init_crc();
 
 		if (!key.empty())
@@ -335,14 +255,18 @@ public:
 
 	void del(const std::string_view& key, version_type version)
 	{
+		if (key.length() > max_ksz)
+		{
+			throw std::runtime_error{ fmt::format("Key length exceeds limit of {}", max_ksz) };
+		}
+
 		this->file_->seek(0, SEEK_END);
 
 		auto header = record_header{};
 
-		//header.version   = std::time(nullptr);
 		header.version  = version;
-		header.ksz      = key.length(); //  TODO: check limits
-		header.value_sz = static_cast<value_sz_type>(-1);
+		header.ksz      = key.length();
+		header.value_sz = deleted_value_sz;
 		header.init_crc();
 
 		if (!key.empty())
@@ -355,19 +279,67 @@ public:
 		this->file_->write(key.data(), key.length());
 	}
 
-	void remove() // don't use this instance afterwards!
+	void traverse(std::function<void(const record&)> callback)
 	{
-		const auto path      = this->path();
-		const auto hint_path = this->hint_path();
+		this->file_->seek(0);
 
-		this->file_.reset(); // closes the file
+		auto header = record_header{};
 
-		if (std::filesystem::exists(hint_path))
+		auto key_buffer = std::string{};
+		key_buffer.reserve(4096u);
+
+		auto value_buffer = std::string{};
+		value_buffer.reserve(4096u);
+
+		for (;;)
 		{
-			std::filesystem::remove(hint_path);
-		}
+			const auto position = this->file_->position();
 
-		std::filesystem::remove(path);
+			auto crc = crc_type{};
+
+			if (!header.read(*this->file_, crc))
+			{
+				break;
+			}
+
+			// read the key
+			const auto key_buffer_size = std::max(key_buffer.capacity(), static_cast<std::string::size_type>(header.ksz));
+			key_buffer.resize(key_buffer_size);
+
+			this->file_->read(key_buffer.data(), header.ksz, file::read_mode::count);
+
+			crc = crc32_fast(key_buffer.data(), header.ksz, crc);
+
+			auto rec = record{ .key = std::string_view{ key_buffer }.substr(0, header.ksz), .value = std::nullopt };
+
+			// Not using a tombstone value as delete marker (as mentioned in https://riak.com/assets/bitcask-intro.pdf)
+			// because any value, no matter how unique, could not be used as a real value.
+			// Maybe that's just splitting hairs, but it's just not my idea of good practice.
+			// I'm using maximum length as delete marker.
+			if (header.value_sz != deleted_value_sz)
+			{
+				const auto value_pos = this->file_->position();
+
+				const auto value_buffer_size = std::max(value_buffer.capacity(), static_cast<std::string::size_type>(header.value_sz));
+				value_buffer.resize(value_buffer_size);
+
+				this->file_->read(value_buffer.data(), header.value_sz, file::read_mode::count);
+
+				crc = crc32_fast(value_buffer.data(), header.value_sz, crc);
+
+				rec.value = record::value_info{ .value_pos = value_pos,
+					                            .value     = std::string_view{ value_buffer }.substr(0, header.value_sz),
+					                            .version   = header.version };
+			}
+
+			if (crc != header.crc)
+			{
+				throw std::runtime_error{ fmt::format(
+					"{}: CRC mismatch in record at position {}", this->file_->path().string(), position) };
+			}
+
+			callback(rec);
+		}
 	}
 };
 
@@ -405,11 +377,6 @@ void datafile::build_keydir(keydir& kd)
 	return this->pimpl_->build_keydir(kd);
 }
 
-void datafile::merge(const keydir& kd, datafile& merged_file, hintfile& hf)
-{
-	return this->pimpl_->merge(kd, merged_file, hf);
-}
-
 value_type datafile::get(const keydir::info& info)
 {
 	return this->pimpl_->get(info);
@@ -425,7 +392,7 @@ void datafile::del(const std::string_view& key, version_type version)
 	return this->pimpl_->del(key, version);
 }
 
-void datafile::remove()
+void datafile::traverse(std::function<void(const record&)> callback)
 {
-	return this->pimpl_->remove();
+	return this->pimpl_->traverse(callback);
 }
