@@ -31,7 +31,7 @@ void keydir::put(const std::string_view& key, keydir::info&& info)
 	{
 		this->version_ = info.version;
 	}
-	this->map_.insert(std::make_pair(key, std::move(info)));
+	this->map_.insert_or_assign(std::string{ key }, std::move(info));
 }
 
 void keydir::del(const std::string_view& key)
