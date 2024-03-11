@@ -25,8 +25,8 @@ public:
 	void    max_file_size(off64_t size);
 
 	std::optional<value_type> get(const std::string_view& key);
-	void                      put(const std::string_view& key, const std::string_view& value);
-	void                      del(const std::string_view& key);
+	void                      put(const std::string_view& key, const std::string_view& value); // FIXME: return update count
+	void                      del(const std::string_view& key);                                // FIXME: return update count
 
 	// maintenance
 	void merge();
