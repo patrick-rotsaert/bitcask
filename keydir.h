@@ -5,6 +5,7 @@
 #include <string_view>
 #include <string>
 #include <unordered_map>
+#include <functional>
 
 #include <sys/types.h>
 
@@ -49,8 +50,14 @@ public:
 	version_type next_version();
 
 	const info* get(const std::string_view& key) const;
-	void        put(const std::string_view& key, info&& info);
-	void        del(const std::string_view& key);
+
+	/// Returns true if the key was inserted, false if the key existed.
+	bool put(const std::string_view& key, info&& info);
+
+	/// Returns true if the key was deleted, false if the key did not exist.
+	bool del(const std::string_view& key);
 
 	void clear();
+
+	bool traverse(std::function<bool(const std::string_view& key, const info& info)> callback);
 };

@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <functional>
 
 class bitcask final
 {
@@ -25,8 +26,14 @@ public:
 	void    max_file_size(off64_t size);
 
 	std::optional<value_type> get(const std::string_view& key);
-	void                      put(const std::string_view& key, const std::string_view& value); // FIXME: return update count
-	void                      del(const std::string_view& key);                                // FIXME: return update count
+
+	/// Returns true if the key was inserted, false if the key existed.
+	bool put(const std::string_view& key, const std::string_view& value);
+
+	/// Returns true if the key was deleted, false if the key did not exist.
+	bool del(const std::string_view& key);
+
+	bool traverse(std::function<bool(const std::string_view& key, const std::string_view& value)> callback);
 
 	// maintenance
 	void merge();

@@ -38,15 +38,20 @@ public:
 		}
 	}
 
-	void put(const std::string_view& key, const std::string_view& value)
+	bool put(const std::string_view& key, const std::string_view& value)
 	{
-		this->keydir_.put(key, this->datadir_.put(key, value, this->keydir_.next_version()));
+		return this->keydir_.put(key, this->datadir_.put(key, value, this->keydir_.next_version()));
 	}
 
-	void del(const std::string_view& key)
+	bool del(const std::string_view& key)
 	{
 		this->datadir_.del(key, this->keydir_.next_version());
-		this->keydir_.del(key);
+		return this->keydir_.del(key);
+	}
+
+	bool traverse(std::function<bool(const std::string_view& key, const std::string_view& value)> callback)
+	{
+		return this->keydir_.traverse([&](const auto& key, const auto& info) { return callback(key, this->datadir_.get(info)); });
 	}
 
 	void merge()
@@ -79,14 +84,19 @@ std::optional<value_type> bitcask::get(const std::string_view& key)
 	return this->pimpl_->get(key);
 }
 
-void bitcask::put(const std::string_view& key, const std::string_view& value)
+bool bitcask::put(const std::string_view& key, const std::string_view& value)
 {
 	return this->pimpl_->put(key, value);
 }
 
-void bitcask::del(const std::string_view& key)
+bool bitcask::del(const std::string_view& key)
 {
 	return this->pimpl_->del(key);
+}
+
+bool bitcask::traverse(std::function<bool(const std::string_view&, const std::string_view&)> callback)
+{
+	return this->pimpl_->traverse(callback);
 }
 
 void bitcask::merge()

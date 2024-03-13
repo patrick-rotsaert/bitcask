@@ -21,29 +21,46 @@ const keydir::info* keydir::get(const std::string_view& key) const
 	}
 	else
 	{
-		return &it->second;
+		return &it->second; // FIXME? probably not safe
 	}
 }
 
-void keydir::put(const std::string_view& key, keydir::info&& info)
+bool keydir::put(const std::string_view& key, keydir::info&& info)
 {
 	if (info.version > this->version_)
 	{
 		this->version_ = info.version;
 	}
-	this->map_.insert_or_assign(std::string{ key }, std::move(info));
+	return this->map_.insert_or_assign(std::string{ key }, std::move(info)).second;
 }
 
-void keydir::del(const std::string_view& key)
+bool keydir::del(const std::string_view& key)
 {
 	const auto it = this->map_.find(key);
-	if (it != this->map_.end())
+	if (it == this->map_.end())
+	{
+		return false;
+	}
+	else
 	{
 		this->map_.erase(it);
+		return true;
 	}
 }
 
 void keydir::clear()
 {
 	this->map_.clear();
+}
+
+bool keydir::traverse(std::function<bool(const std::string_view& key, const info& info)> callback)
+{
+	for (const auto& pair : this->map_)
+	{
+		if (!callback(pair.first, pair.second))
+		{
+			return false;
+		}
+	}
+	return true;
 }
