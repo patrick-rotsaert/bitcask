@@ -25,6 +25,8 @@ public:
 	off64_t max_file_size() const;
 	void    max_file_size(off64_t size);
 
+	bool empty() const;
+
 	std::optional<value_type> get(const std::string_view& key);
 
 	/// Returns true if the key was inserted, false if the key existed.
@@ -37,4 +39,7 @@ public:
 
 	// maintenance
 	void merge();
+
+	// destruction
+	void clear();
 };

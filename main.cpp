@@ -1,74 +1,19 @@
 #include "bitcask.h"
+#include "test_operation.h"
+#include "make_random_operations.h"
+#include "counter_timer.h"
 #include <fmt/format.h>
-#include <fmt/chrono.h>
+#include <fmt/ostream.h>
 #include <stdexcept>
-#include <chrono>
 #include <iostream>
+#include <fstream>
 #include <cassert>
 #include <map>
-#include <random>
 #include <type_traits>
-#include <chrono>
+#include <unordered_map>
+#include <filesystem>
 
 using map_type = std::map<key_type, value_type>;
-
-struct counter_timer
-{
-	std::size_t              count{};
-	std::chrono::nanoseconds dur{};
-
-	using clock_type = std::chrono::high_resolution_clock;
-	clock_type::time_point tp{};
-
-	struct stopper
-	{
-		counter_timer& ct_;
-
-		explicit stopper(counter_timer& ct)
-		    : ct_{ ct }
-		{
-		}
-
-		~stopper()
-		{
-			const auto tp = clock_type::now();
-			this->ct_.dur += tp - this->ct_.tp;
-
-			++this->ct_.count;
-		}
-	};
-
-	void start()
-	{
-		this->tp = clock_type::now();
-	}
-
-	stopper raii_start()
-	{
-		this->tp = clock_type::now();
-		return stopper{ *this };
-	}
-
-	void stop()
-	{
-		const auto tp = clock_type::now();
-		this->dur += tp - this->tp;
-
-		++this->count;
-	}
-
-	void report(std::string_view name)
-	{
-		if (this->count)
-		{
-			fmt::print(stdout, "{}: count={} total={} avg={}\n", name, this->count, this->dur, this->dur / this->count);
-		}
-		else
-		{
-			fmt::print(stdout, "{}: count={}\n", name, this->count);
-		}
-	}
-};
 
 #if defined(DEBUG)
 #define trace(...)                                                                                                                         \
@@ -83,10 +28,12 @@ struct counter_timer
 	} while (false)
 #endif
 
-void run_test_01(bitcask& bc)
-{
-	bc.max_file_size(10u * 1024u * 1024u); // 10M
+const auto bitcask_dir              = std::filesystem::path{ "/tmp/bitcask" };
+const auto test_operations_csv_file = bitcask_dir / "test_operations.csv";
+const auto test_map_file            = bitcask_dir / "test_map.csv";
 
+map_type load_map(bitcask& bc)
+{
 	auto map = map_type{};
 
 	bc.traverse([&](const auto& key, const auto& value) {
@@ -94,92 +41,147 @@ void run_test_01(bitcask& bc)
 		return true;
 	});
 
-	auto rd = std::random_device{};
-	auto re = std::default_random_engine{ rd() };
+	return map;
+}
 
-	auto&& pick_random_map_pair = [&]() {
-		auto dist = std::uniform_int_distribution<std::size_t>(0, map.size() - 1);
-
-		auto it = map.begin();
-		std::advance(it, dist(re));
-
-		return *it;
-	};
-
-	auto&& generate_random_string = [&](std::size_t length) -> std::string {
-		constexpr auto chars  = std::string_view{ "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" };
-		auto           dist   = std::uniform_int_distribution<std::size_t>(0, chars.length() - 1);
-		auto           result = std::string{};
-		result.resize(length);
-		for (std::size_t i = 0; i < length; ++i)
-		{
-			result[i] = chars[dist(re)];
-		}
-		return result;
-	};
-
-	auto&& generate_random_key = [&]() {
-		//auto dist = std::uniform_int_distribution<std::size_t>(2, 100);
-		auto dist = std::uniform_int_distribution<std::size_t>(1, 10);
-		return generate_random_string(dist(re));
-	};
-
-	auto&& generate_random_key_non_existing = [&]() {
-		for (;;)
-		{
-			const auto key = generate_random_key();
-			if (map.contains(key))
-			{
-				continue;
-			}
-			else
-			{
-				return key;
-			}
-		}
-	};
-
-	auto&& generate_random_value = [&]() {
-		//auto dist = std::uniform_int_distribution<std::size_t>(0, 1000);
-		auto dist = std::uniform_int_distribution<std::size_t>(0, 10);
-		return generate_random_string(dist(re));
-	};
-
-	auto ct_get = counter_timer{};
-	auto ct_put = counter_timer{};
-	auto ct_del = counter_timer{};
-
-	for (auto n = 1000000; n; --n)
+void write_random_test_operations_to_file(std::size_t count = 1000)
+{
+	// Assuming the key and value never contain a ','
+	auto map = map_type{};
 	{
-		enum class action
+		auto out = std::ofstream{ test_operations_csv_file };
+		fmt::print(stderr, "Writing {}\n", test_operations_csv_file);
+		make_random_operations(map, count, [&](test_operation op, std::string_view key, std::string_view value) {
+			fmt::print(out, "{},{},{}\n", static_cast<int>(op), key, value);
+		});
+	}
+	{
+		auto out = std::ofstream{ test_map_file };
+		fmt::print(stderr, "Writing {}\n", test_map_file);
+		for (const auto& [key, value] : map)
 		{
-			first     = 0,
-			get_exist = first,
-			get_nexist,
-			ins,
-			upd,
-			del_exist,
-			del_nexist,
-			last = del_nexist
-		};
+			fmt::print(out, "{},{}\n", key, value);
+		}
+	}
+}
 
-		auto dist = std::uniform_int_distribution<int>(static_cast<int>(action::first), static_cast<int>(action::last));
-		switch (static_cast<action>(dist(re)))
+std::vector<std::string_view> split_string(std::string_view in, char sep)
+{
+	auto out   = std::vector<std::string_view>{};
+	auto begin = std::string_view::size_type{};
+	for (;;)
+	{
+		const auto end = in.find_first_of(sep, begin);
+		out.push_back(in.substr(begin, end - begin));
+		if (end == std::string_view::npos)
 		{
-		case action::get_exist:
-			if (!map.empty())
+			break;
+		}
+		else
+		{
+			begin = end + 1;
+		}
+	}
+	return out;
+}
+
+map_type load_map_from_file()
+{
+	// Assuming the key and value never contain a ','
+	auto map  = map_type{};
+	auto in   = std::ifstream{ test_map_file };
+	auto line = std::string{};
+	while (std::getline(in, line))
+	{
+		const auto fields = split_string(line, ',');
+		if (fields.size() == 2u)
+		{
+			map[std::string{ fields[0] }] = fields[1];
+		}
+	}
+	return map;
+}
+
+void verify_maps_are_equal(const map_type& map1, const map_type& map2)
+{
+	if (map1 == map2)
+	{
+		fmt::print(stderr, "OK. Keys in map: {}\n", map1.size());
+	}
+	else
+	{
+		throw std::runtime_error{ fmt::format("FAIL. Maps differ. Keys in 1st map: {}, in 2nd {}\n", map1.size(), map2.size()) };
+	}
+}
+
+void traverse_test_operations_from_file(std::function<void(test_operation op, std::string_view key, std::string_view value)> handler)
+{
+	auto in   = std::ifstream{ test_operations_csv_file };
+	auto line = std::string{};
+	//auto linenr = std::size_t{};
+	while (std::getline(in, line))
+	{
+		//fmt::print(stderr, "{}\n", ++linenr);
+		const auto fields = split_string(line, ',');
+		if (fields.size() == 3u)
+		{
+			handler(static_cast<test_operation>(std::stoi(std::string{ fields[0] })), fields[1], fields[2]);
+		}
+	}
+}
+
+struct test_operation_executor
+{
+	bitcask*      bc_{};
+	counter_timer ct_get_exist{};
+	counter_timer ct_get_nexist{};
+	counter_timer ct_ins{};
+	counter_timer ct_upd{};
+	counter_timer ct_del_exist{};
+	counter_timer ct_del_nexist{};
+	counter_timer ct_iterate{};
+
+	test_operation_executor(bitcask& bc)
+	    : bc_{ &bc }
+	{
+		bc_->max_file_size(
+		    //
+		    10u * 1024u * 1024u // 10M
+		                        //1u * 1024u * 1024u // 1M
+		);
+	}
+
+	~test_operation_executor()
+	{
+		ct_get_exist.report("get exist");
+		ct_get_nexist.report("get nexist");
+		ct_ins.report("ins");
+		ct_upd.report("upd");
+		ct_del_exist.report("del exist");
+		ct_del_nexist.report("del nexist");
+		ct_iterate.report("iterate");
+	}
+
+	test_operation_executor(test_operation_executor&&)            = delete;
+	test_operation_executor& operator=(test_operation_executor&&) = delete;
+
+	test_operation_executor(const test_operation_executor&)            = delete;
+	test_operation_executor& operator=(const test_operation_executor&) = delete;
+
+	void operator()(test_operation op, std::string_view key, std::string_view value)
+	{
+		const auto _ = ct_iterate.raii_start();
+		switch (op)
+		{
+		case test_operation::get_exist:
+			do
 			{
-				const auto pair = pick_random_map_pair();
-
-				const auto& key   = pair.first;
-				const auto& value = pair.second;
-
 				trace("Get existing {}={}\n", key, value);
 				(void)value;
 
-				ct_get.start();
-				const auto res = bc.get(key);
-				ct_get.stop();
+				ct_get_exist.start();
+				const auto res = bc_->get(key);
+				ct_get_exist.stop();
 
 				if (res.has_value())
 				{
@@ -191,18 +193,16 @@ void run_test_01(bitcask& bc)
 				}
 				assert(res.has_value());
 				assert(res.value() == value);
-			}
+			} while (false);
 			break;
-		case action::get_nexist:
+		case test_operation::get_nexist:
 			do
 			{
-				const auto key = generate_random_key_non_existing();
-
 				trace("Get non-existing {}\n", key);
 
-				ct_get.start();
-				const auto res = bc.get(key);
-				ct_get.stop();
+				ct_get_nexist.start();
+				const auto res = bc_->get(key);
+				ct_get_nexist.stop();
 
 				if (res.has_value())
 				{
@@ -215,69 +215,56 @@ void run_test_01(bitcask& bc)
 				assert(!res.has_value());
 			} while (false);
 			break;
-		case action::ins:
+		case test_operation::ins:
 			do
 			{
-				const auto key   = generate_random_key_non_existing();
-				const auto value = generate_random_value();
-
 				trace("Ins {}={}\n", key, value);
-				map[key] = value;
 
-				ct_put.start();
-				const auto res = bc.put(key, value);
-				ct_put.stop();
+				ct_ins.start();
+				const auto res = bc_->put(key, value);
+				ct_ins.stop();
 
 				trace(" -> {}\n", res);
 				assert(res);
 				(void)res;
 			} while (false);
 			break;
-		case action::upd:
-			if (!map.empty())
+		case test_operation::upd:
+			do
 			{
-				const auto key   = pick_random_map_pair().first;
-				const auto value = generate_random_value();
+				trace("Upd {}={}\n", key, value);
 
-				trace("Upd {}={} (was {})\n", key, value, map[key]);
-				map[key] = value;
-
-				ct_put.start();
-				const auto res = bc.put(key, value);
-				ct_put.stop();
+				ct_upd.start();
+				const auto res = bc_->put(key, value);
+				ct_upd.stop();
 
 				trace(" -> {}\n", res);
 				assert(!res);
 				(void)res;
-			}
+			} while (false);
 			break;
-		case action::del_exist:
-			if (!map.empty())
+		case test_operation::del_exist:
+			do
 			{
-				const auto key = pick_random_map_pair().first;
-
 				trace("Del existing {}\n", key);
-				map.erase(key);
 
-				ct_del.start();
-				const auto res = bc.del(key);
-				ct_del.stop();
+				ct_del_exist.start();
+				const auto res = bc_->del(key);
+				ct_del_exist.stop();
 
 				trace(" -> {}\n", res);
 				assert(res);
 				(void)res;
-			}
+			} while (false);
 			break;
-		case action::del_nexist:
+		case test_operation::del_nexist:
 			do
 			{
-				const auto key = generate_random_key_non_existing();
-
 				trace("Del non-existing {}\n", key);
 
-				ct_del.start();
-				const auto res = bc.del(key);
-				ct_del.stop();
+				ct_del_nexist.start();
+				const auto res = bc_->del(key);
+				ct_del_nexist.stop();
 
 				trace(" -> {}\n", res);
 				assert(!res);
@@ -286,30 +273,85 @@ void run_test_01(bitcask& bc)
 			break;
 		}
 	}
+};
 
-	ct_get.report("get");
-	ct_put.report("put");
-	ct_del.report("del");
+void run_test_operations_from_file(bitcask& bc)
+{
+	auto executor = test_operation_executor{ bc };
+	traverse_test_operations_from_file(std::ref(executor));
 }
 
-void run_test_02(bitcask& bc)
+void run_random_operations(bitcask& bc, map_type& map, std::size_t count = 1000u)
 {
-	bc.put("tomato", "fruit");
-	bc.put("tomato", "vegetable");
-
-	auto res = bc.get("tomato");
-	if (res.has_value())
-	{
-		trace(" -> {}\n", res.value());
-	}
-	else
-	{
-		trace(" -> null\n");
-	}
+	auto executor = test_operation_executor{ bc };
+	make_random_operations(map, count, std::ref(executor));
 }
 
-void run_merge(bitcask& bc)
+void run_test_01()
 {
+	auto bc   = bitcask{ bitcask_dir };
+	auto map1 = load_map(bc);
+	fmt::print(stderr, "Run started\n");
+	run_random_operations(bc, map1, 1000u);
+	fmt::print(stderr, "Run finished\n");
+	const auto map2 = load_map(bc);
+	verify_maps_are_equal(map1, map2);
+}
+
+void run_test_02()
+{
+	auto bc = bitcask{ bitcask_dir };
+	bc.clear(); // !!!
+	fmt::print(stderr, "Run started\n");
+	run_test_operations_from_file(bc);
+	fmt::print(stderr, "Run finished\n");
+	const auto map1 = load_map(bc);
+	const auto map2 = load_map_from_file();
+	verify_maps_are_equal(map1, map2);
+}
+
+void run_test_03()
+{
+	auto map1 = map_type{};
+	auto map2 = map_type{};
+	{
+		auto bc = bitcask{ bitcask_dir };
+		if (bc.empty())
+		{
+			if (!std::filesystem::exists(test_operations_csv_file) || !std::filesystem::exists(test_map_file))
+			{
+				write_random_test_operations_to_file(1e6);
+			}
+			fmt::print(stderr, "Run started\n");
+			run_test_operations_from_file(bc);
+			fmt::print(stderr, "Run finished\n");
+		}
+		map1 = load_map(bc);
+	}
+	{
+		auto bc = bitcask{ bitcask_dir };
+		//bc.max_file_size(10u * 1024u * 1024u);
+		fmt::print(stderr, "Merge started\n");
+		bc.merge();
+		fmt::print(stderr, "Merge finished\n");
+		map2 = load_map(bc);
+	}
+	verify_maps_are_equal(map1, map2);
+	{
+		fmt::print(stderr, "Load started\n");
+		auto bc = bitcask{ bitcask_dir };
+		map2    = load_map(bc);
+		fmt::print(stderr, "Load finished\n");
+	}
+	verify_maps_are_equal(map1, map2);
+}
+
+void run_merge()
+{
+	auto bc = bitcask{ bitcask_dir };
+
+	bc.max_file_size(10u * 1024u * 1024u);
+
 	auto ct = counter_timer{};
 
 	ct.start();
@@ -323,20 +365,13 @@ int main()
 {
 	try
 	{
-		const auto start = std::chrono::steady_clock::now();
-
-		auto bc = bitcask{ "/tmp/bitcask" };
-
-		{
-			const auto now = std::chrono::steady_clock::now();
-			trace("Bitcask construction took {}s\n", std::chrono::duration<double>{ now - start }.count());
-			(void)start;
-			(void)now;
-		}
-
-		//run_test_01(bc);
-		//run_test_02(bc);
-		run_merge(bc);
+		//load_map_from_file();
+		//write_random_test_operations_to_file(1e6);
+		//run_merge();
+		//run_test_01();
+		//run_test_02();
+		run_test_03();
+		//run_merge();
 	}
 	catch (const std::exception& e)
 	{

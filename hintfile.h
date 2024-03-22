@@ -21,8 +21,6 @@ public:
 	hintfile(const hintfile&)            = delete;
 	hintfile& operator=(const hintfile&) = delete;
 
-	file& get_file() const;
-
 	std::filesystem::path path() const;
 
 	void build_keydir(keydir& kd, file_id_type file_id);

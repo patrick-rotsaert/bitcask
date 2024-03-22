@@ -112,10 +112,10 @@ struct record_header
 
 file_id_type get_id_from_file_name(std::string_view name)
 {
-	if (name.starts_with("bitcask-") && name.ends_with(".data") && name.length() == 8u + 16u + 5u)
+	if (name.starts_with("bitcask-") && name.ends_with(".data") && name.length() == 8u + file_id_nibbles + 5u)
 	{
 		const auto first = name.data() + 8u;
-		const auto last  = first + 16u;
+		const auto last  = first + file_id_nibbles;
 		auto       id    = file_id_type{};
 		auto       res   = std::from_chars(first, last, id, 16);
 		if (res.ec == std::errc{} && res.ptr == last)
@@ -128,11 +128,11 @@ file_id_type get_id_from_file_name(std::string_view name)
 
 } // namespace
 
-std::regex datafile::name_regex{ R"~(^bitcask-[0-9a-f]{16}\.data)~" };
+std::regex datafile::name_regex{ fmt::format(R"~(^bitcask-[0-9a-f]{{{}}}\.data)~", file_id_nibbles) };
 
 std::string datafile::make_filename(file_id_type id)
 {
-	return fmt::format("bitcask-{:016x}.data", id);
+	return fmt::format("bitcask-{0:0{1}x}.data", id, file_id_nibbles);
 }
 
 class datafile::impl final
@@ -152,11 +152,6 @@ public:
 		return this->id_;
 	}
 
-	file& get_file() const
-	{
-		return *this->file_;
-	}
-
 	std::filesystem::path path() const
 	{
 		return this->file_->path();
@@ -165,6 +160,16 @@ public:
 	std::filesystem::path hint_path() const
 	{
 		return this->path().string() + ".hint";
+	}
+
+	bool size_greater_than(off64_t size) const
+	{
+		return this->file_->size() > size;
+	}
+
+	void reopen(int flags, mode_t mode)
+	{
+		return this->file_->reopen(flags, mode);
 	}
 
 	void build_keydir(keydir& kd)
@@ -334,6 +339,11 @@ public:
 
 			if (crc != header.crc)
 			{
+				// TODO: try to recover from this.
+				// Starting at the current position, seek forward 1 byte per iteration and try
+				// to read the next record. Continue this iteration until a valid record is found
+				// or until EOF is reached.
+				// A corrupted file can happen for multiple reasons, this should not be fatal.
 				throw std::runtime_error{ fmt::format(
 					"{}: CRC mismatch in record at position {}", this->file_->path().string(), position) };
 			}
@@ -357,11 +367,6 @@ file_id_type datafile::id() const
 	return this->pimpl_->id();
 }
 
-file& datafile::get_file() const
-{
-	return this->pimpl_->get_file();
-}
-
 std::filesystem::path datafile::path() const
 {
 	return this->pimpl_->path();
@@ -370,6 +375,16 @@ std::filesystem::path datafile::path() const
 std::filesystem::path datafile::hint_path() const
 {
 	return this->pimpl_->hint_path();
+}
+
+bool datafile::size_greater_than(off64_t size) const
+{
+	return this->pimpl_->size_greater_than(size);
+}
+
+void datafile::reopen(int flags, mode_t mode)
+{
+	return this->pimpl_->reopen(flags, mode);
 }
 
 void datafile::build_keydir(keydir& kd)

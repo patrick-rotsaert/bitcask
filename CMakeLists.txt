@@ -24,6 +24,9 @@ add_cxx_executable(bitcask
 	keydir.cpp
 	keydir.h
 	basic_types.h
+	lockfile.cpp
+	lockfile.h
+	lockfile_impl_posix.h
 	crc32.cpp
 	crc32.h
 	file.cpp
@@ -31,6 +34,10 @@ add_cxx_executable(bitcask
 	hton.h
 
 	main.cpp
+	test_operation.h
+	make_random_operations.cpp
+	make_random_operations.h
+	counter_timer.h
 )
 
 target_link_libraries(bitcask PRIVATE fmt::fmt)

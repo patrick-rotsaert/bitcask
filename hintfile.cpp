@@ -153,6 +153,9 @@ class hintfile::impl
 
 			if (crc != rec.header.crc)
 			{
+				// TODO: do not throw but return a value that tells the caller that the hint file
+				// is corrupted. The caller must then delete this hint file and read the keys from the
+				// datafile instead.
 				throw std::runtime_error{ fmt::format(
 					"{}: CRC mismatch in record at position {}", this->file_->path().string(), position) };
 			}
@@ -165,11 +168,6 @@ public:
 	explicit impl(std::unique_ptr<file>&& f)
 	    : file_{ std::move(f) }
 	{
-	}
-
-	file& get_file() const
-	{
-		return *this->file_;
 	}
 
 	std::filesystem::path path() const
@@ -218,11 +216,6 @@ hintfile::hintfile(std::unique_ptr<file>&& f)
 
 hintfile::~hintfile() noexcept
 {
-}
-
-file& hintfile::get_file() const
-{
-	return this->pimpl_->get_file();
 }
 
 std::filesystem::path hintfile::path() const

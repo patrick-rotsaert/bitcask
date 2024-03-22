@@ -25,6 +25,24 @@ const keydir::info* keydir::get(const std::string_view& key) const
 	}
 }
 
+keydir::info* keydir::get_mutable(const std::string_view& key)
+{
+	const auto it = this->map_.find(key);
+	if (it == this->map_.end())
+	{
+		return nullptr;
+	}
+	else
+	{
+		return &it->second; // FIXME? probably not safe
+	}
+}
+
+bool keydir::empty() const
+{
+	return this->map_.empty();
+}
+
 bool keydir::put(const std::string_view& key, keydir::info&& info)
 {
 	if (info.version > this->version_)

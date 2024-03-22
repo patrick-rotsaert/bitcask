@@ -30,12 +30,12 @@ public:
 	datafile(const datafile&)            = delete;
 	datafile& operator=(const datafile&) = delete;
 
-	file_id_type id() const;
-
-	file& get_file() const;
-
+	file_id_type          id() const;
 	std::filesystem::path path() const;
 	std::filesystem::path hint_path() const;
+
+	bool size_greater_than(off64_t size) const;
+	void reopen(int flags, mode_t mode);
 
 	void build_keydir(keydir& kd);
 

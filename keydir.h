@@ -50,6 +50,9 @@ public:
 	version_type next_version();
 
 	const info* get(const std::string_view& key) const;
+	info*       get_mutable(const std::string_view& key);
+
+	bool empty() const;
 
 	/// Returns true if the key was inserted, false if the key existed.
 	bool put(const std::string_view& key, info&& info);

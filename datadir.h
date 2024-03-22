@@ -32,4 +32,7 @@ public:
 
 	// maintenance
 	void merge(keydir& kd);
+
+	// destruction
+	void clear();
 };

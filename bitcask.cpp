@@ -25,6 +25,11 @@ public:
 		return this->datadir_.max_file_size(size);
 	}
 
+	bool empty() const
+	{
+		return this->keydir_.empty();
+	}
+
 	std::optional<value_type> get(const std::string_view& key)
 	{
 		const auto info = this->keydir_.get(key);
@@ -58,10 +63,20 @@ public:
 	{
 		return this->datadir_.merge(this->keydir_);
 	}
+
+	void clear()
+	{
+		this->keydir_.clear();
+		this->datadir_.clear();
+	}
 };
 
 bitcask::bitcask(const std::filesystem::path& directory)
     : pimpl_{ std::make_unique<impl>(directory) }
+{
+}
+
+bitcask::~bitcask() noexcept
 {
 }
 
@@ -75,8 +90,9 @@ void bitcask::max_file_size(off64_t size)
 	return this->pimpl_->max_file_size(size);
 }
 
-bitcask::~bitcask() noexcept
+bool bitcask::empty() const
 {
+	return this->pimpl_->empty();
 }
 
 std::optional<value_type> bitcask::get(const std::string_view& key)
@@ -102,4 +118,9 @@ bool bitcask::traverse(std::function<bool(const std::string_view&, const std::st
 void bitcask::merge()
 {
 	return this->pimpl_->merge();
+}
+
+void bitcask::clear()
+{
+	return this->pimpl_->clear();
 }
