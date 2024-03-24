@@ -24,6 +24,8 @@
 
 #include <fcntl.h>
 
+namespace bitcask {
+
 namespace {
 
 constexpr auto max_ksz          = std::numeric_limits<ksz_type>::max();
@@ -435,3 +437,5 @@ void datafile::traverse(std::function<void(const record&)> callback) const
 {
 	return this->pimpl_->traverse(callback);
 }
+
+} // namespace bitcask

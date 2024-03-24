@@ -13,6 +13,8 @@
 
 #include <memory>
 
+namespace bitcask {
+
 class hintfile final
 {
 	class impl;
@@ -42,3 +44,5 @@ public:
 
 	void put(hint&& rec) const;
 };
+
+} // namespace bitcask

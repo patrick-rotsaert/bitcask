@@ -12,6 +12,8 @@
 #include <condition_variable>
 #include <memory>
 
+namespace bitcask {
+
 template<typename T>
 class synchronized_queue
 {
@@ -54,3 +56,5 @@ public:
 		return this->queue_.size();
 	}
 };
+
+} // namespace bitcask

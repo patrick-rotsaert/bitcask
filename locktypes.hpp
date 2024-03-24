@@ -13,6 +13,8 @@
 #include <mutex>
 #include <shared_mutex>
 
+namespace bitcask {
+
 using lock_type       = std::unique_lock<std::mutex>;
 using write_lock_type = std::unique_lock<std::shared_mutex>;
 using read_lock_type  = std::shared_lock<std::shared_mutex>;
@@ -44,7 +46,11 @@ public:
 	}
 };
 
+} // namespace bitcask
+
 #else
+
+namespace bitcask {
 
 struct lock_type
 {
@@ -77,4 +83,7 @@ public:
 		return write_lock_type{};
 	}
 };
+
+} // namespace bitcask
+
 #endif

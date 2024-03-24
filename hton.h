@@ -18,6 +18,8 @@
 #include <type_traits>
 #include <cstdint>
 
+namespace bitcask {
+
 inline uint16_t swap(uint16_t x)
 {
 #if defined(__GNUC__) || defined(__clang__)
@@ -66,3 +68,5 @@ inline std::enable_if_t<std::is_integral_v<T>, T> hton(T x)
 }
 
 #define ntoh(x) hton(x)
+
+} // namespace bitcask

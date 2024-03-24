@@ -8,9 +8,13 @@
 #pragma once
 
 #include "locktypes.hpp"
+
 #include <filesystem>
 #include <memory>
+
 #include <sys/stat.h>
+
+namespace bitcask {
 
 class file final
 {
@@ -63,3 +67,5 @@ public:
 	off64_t     locked_position(const lock_type&) const;
 	off64_t     locked_size(const lock_type&) const;
 };
+
+} // namespace bitcask

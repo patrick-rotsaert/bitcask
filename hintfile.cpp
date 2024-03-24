@@ -14,6 +14,8 @@
 #include <functional>
 #include <cstring>
 
+namespace bitcask {
+
 namespace {
 
 struct record_header
@@ -244,3 +246,5 @@ void hintfile::put(hint&& rec) const
 {
 	this->pimpl_->put(std::move(rec));
 }
+
+} // namespace bitcask

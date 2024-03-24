@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <stdexcept>
 
+namespace bitcask {
+
 class keydir::impl
 {
 	struct string_hash
@@ -183,3 +185,5 @@ bool keydir::traverse(std::function<bool(const std::string_view&, const info&)> 
 {
 	return this->pimpl_->traverse(callback);
 }
+
+} // namespace bitcask

@@ -6,10 +6,14 @@
 //
 
 #include "lockfile.h"
+
 #include <system_error>
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
+namespace bitcask {
 
 class lockfile::impl
 {
@@ -46,3 +50,5 @@ public:
 		close(this->fd_);
 	}
 };
+
+} // namespace bitcask

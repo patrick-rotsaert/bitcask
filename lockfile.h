@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <memory>
 
+namespace bitcask {
+
 class lockfile
 {
 	class impl;
@@ -25,3 +27,5 @@ public:
 	lockfile(const lockfile&)            = delete;
 	lockfile& operator=(const lockfile&) = delete;
 };
+
+} // namespace bitcask

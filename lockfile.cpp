@@ -13,6 +13,8 @@
 #include "lockfile_impl_posix.hpp"
 #endif
 
+namespace bitcask {
+
 lockfile::lockfile(const std::filesystem::path& path)
     : pimpl_{ std::make_unique<impl>(path) }
 {
@@ -21,3 +23,5 @@ lockfile::lockfile(const std::filesystem::path& path)
 lockfile::~lockfile() noexcept
 {
 }
+
+} // namespace bitcask

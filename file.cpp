@@ -34,6 +34,8 @@
 #define c_write(fd, buf, count) ::write(fd, buf, count)
 #endif
 
+namespace bitcask {
+
 namespace {
 
 int open_file(const std::filesystem::path& path, int flags, mode_t mode)
@@ -293,3 +295,5 @@ off64_t file::locked_size(const lock_type& lock) const
 {
 	return this->pimpl_->locked_size(lock);
 }
+
+} // namespace bitcask

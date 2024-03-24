@@ -7,7 +7,11 @@
 
 #include "make_random_operations.h"
 #include "counter_timer.hpp"
+
 #include <random>
+
+namespace bitcask {
+namespace demo {
 
 void make_random_operations(std::map<key_type, value_type>&                                         map,
                             std::size_t                                                             count,
@@ -127,3 +131,6 @@ void make_random_operations(std::map<key_type, value_type>&                     
 	}
 	ct.report("loop");
 }
+
+} // namespace demo
+} // namespace bitcask

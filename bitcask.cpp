@@ -9,6 +9,8 @@
 #include "datadir.h"
 #include "keydir.h"
 
+namespace bitcask {
+
 class bitcask::impl
 {
 	datadir datadir_;
@@ -130,3 +132,5 @@ void bitcask::clear(const std::filesystem::__cxx11::path& directory)
 {
 	impl::clear(directory);
 }
+
+} // namespace bitcask

@@ -12,6 +12,9 @@
 
 #include <chrono>
 
+namespace bitcask {
+namespace demo {
+
 struct counter_timer
 {
 	std::size_t              count{};
@@ -69,3 +72,6 @@ struct counter_timer
 		}
 	}
 };
+
+} // namespace demo
+} // namespace bitcask

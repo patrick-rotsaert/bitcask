@@ -13,6 +13,8 @@
 #include <filesystem>
 #include <memory>
 
+namespace bitcask {
+
 class datadir final
 {
 	class impl;
@@ -44,3 +46,5 @@ public:
 	// make sure no datadir instance exists with this directory!
 	static void clear(const std::filesystem::path& directory);
 };
+
+} // namespace bitcask

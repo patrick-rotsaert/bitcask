@@ -25,6 +25,9 @@
 #include <random>
 #include <future>
 
+namespace bitcask {
+namespace demo {
+
 using map_type = std::map<key_type, value_type>;
 
 #if defined(DEBUG)
@@ -550,8 +553,13 @@ void run_merge()
 	ct.report("merge");
 }
 
+} // namespace demo
+} // namespace bitcask
+
 int main()
 {
+	using namespace bitcask::demo;
+
 	try
 	{
 		//load_map_from_file();

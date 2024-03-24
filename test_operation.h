@@ -9,6 +9,9 @@
 
 #include <string_view>
 
+namespace bitcask {
+namespace demo {
+
 enum class test_operation
 {
 	first     = 0,
@@ -20,3 +23,6 @@ enum class test_operation
 	del_nexist,
 	last = del_nexist
 };
+
+}
+} // namespace bitcask

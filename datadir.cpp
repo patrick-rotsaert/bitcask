@@ -26,6 +26,8 @@
 
 #include <fcntl.h>
 
+namespace bitcask {
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -326,3 +328,5 @@ void datadir::clear(const std::filesystem::path& directory)
 {
 	return impl::clear(directory);
 }
+
+} // namespace bitcask

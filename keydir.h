@@ -18,6 +18,8 @@
 #include <utility>
 #include <functional>
 
+namespace bitcask {
+
 struct keydir_info final
 {
 	file_id_type   file_id;
@@ -52,3 +54,5 @@ public:
 
 	bool traverse(std::function<bool(const std::string_view& key, const info& info)> callback);
 };
+
+} // namespace bitcask

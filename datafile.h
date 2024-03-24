@@ -18,6 +18,8 @@
 #include <optional>
 #include <functional>
 
+namespace bitcask {
+
 class datafile final
 {
 	class impl;
@@ -67,3 +69,5 @@ public:
 
 	void traverse(std::function<void(const record&)> callback) const;
 };
+
+} // namespace bitcask
