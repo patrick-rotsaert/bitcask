@@ -1,7 +1,7 @@
 #pragma once
 
 #include "file.h"
-#include "basic_types.h"
+#include "basictypes.h"
 #include "keydir.h"
 #include "hintfile.h"
 

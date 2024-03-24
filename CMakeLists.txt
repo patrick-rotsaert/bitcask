@@ -23,7 +23,7 @@ add_cxx_executable(bitcask
 	hintfile.h
 	keydir.cpp
 	keydir.h
-	basic_types.h
+	basictypes.h
 	locktypes.hpp
 	lockfile.cpp
 	lockfile.h
