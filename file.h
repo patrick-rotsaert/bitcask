@@ -24,7 +24,7 @@ public:
 
 	void reopen(int flags, mode_t mode);
 
-	const std::filesystem::path& path() const;
+	const std::filesystem::path& path() const noexcept;
 
 	enum class read_mode
 	{

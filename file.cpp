@@ -81,7 +81,7 @@ public:
 		this->fd_ = open_file(this->path_, flags, mode);
 	}
 
-	const std::filesystem::path& path() const
+	const std::filesystem::path& path() const noexcept
 	{
 		return this->path_;
 	}
@@ -217,7 +217,7 @@ void file::reopen(int flags, mode_t mode)
 	return this->pimpl_->reopen(flags, mode);
 }
 
-const std::filesystem::path& file::path() const
+const std::filesystem::path& file::path() const noexcept
 {
 	return this->pimpl_->path();
 }

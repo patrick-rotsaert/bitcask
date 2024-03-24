@@ -17,12 +17,12 @@ struct counter_timer
 	{
 		counter_timer& ct_;
 
-		explicit stopper(counter_timer& ct)
+		explicit stopper(counter_timer& ct) noexcept
 		    : ct_{ ct }
 		{
 		}
 
-		~stopper()
+		~stopper() noexcept
 		{
 			const auto tp = clock_type::now();
 			this->ct_.dur += tp - this->ct_.tp;
@@ -31,18 +31,18 @@ struct counter_timer
 		}
 	};
 
-	void start()
+	void start() noexcept
 	{
 		this->tp = clock_type::now();
 	}
 
-	stopper raii_start()
+	stopper raii_start() noexcept
 	{
 		this->tp = clock_type::now();
 		return stopper{ *this };
 	}
 
-	void stop()
+	void stop() noexcept
 	{
 		const auto tp = clock_type::now();
 		this->dur += tp - this->tp;
