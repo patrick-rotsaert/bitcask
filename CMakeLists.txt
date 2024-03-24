@@ -24,6 +24,7 @@ add_cxx_executable(bitcask
 	keydir.cpp
 	keydir.h
 	basic_types.h
+	locktypes.hpp
 	lockfile.cpp
 	lockfile.h
 	lockfile_impl_posix.h
@@ -33,11 +34,19 @@ add_cxx_executable(bitcask
 	file.h
 	hton.h
 
+	config.h.in
+
 	main.cpp
 	test_operation.h
 	make_random_operations.cpp
 	make_random_operations.h
-	counter_timer.h
+	counter_timer.hpp
+	syncqueue.hpp
 )
 
 target_link_libraries(bitcask PRIVATE fmt::fmt)
+
+option(BITCASK_THREAD_SAFE "Compile with locking code" true)
+
+configure_file(config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h @ONLY)
+target_include_directories(bitcask PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

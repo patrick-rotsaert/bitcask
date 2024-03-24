@@ -41,5 +41,6 @@ public:
 	void merge();
 
 	// destruction
-	void clear();
+	// make sure no bitcask instance exists with this directory!
+	static void clear(const std::filesystem::path& directory);
 };

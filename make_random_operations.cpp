@@ -1,5 +1,5 @@
 #include "make_random_operations.h"
-#include "counter_timer.h"
+#include "counter_timer.hpp"
 #include <random>
 
 void make_random_operations(std::map<key_type, value_type>&                                         map,

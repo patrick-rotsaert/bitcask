@@ -34,5 +34,6 @@ public:
 	void merge(keydir& kd);
 
 	// destruction
-	void clear();
+	// make sure no datadir instance exists with this directory!
+	static void clear(const std::filesystem::path& directory);
 };

@@ -34,9 +34,9 @@ struct record_header
 
 	char buffer[size];
 
-	bool read(file& f, crc_type& crc)
+	bool read(const lock_type& lock, file& f, crc_type& crc)
 	{
-		if (f.read(this->buffer, size, file::read_mode::zero_or_count))
+		if (f.locked_read(lock, this->buffer, size, file::read_mode::zero_or_count))
 		{
 			auto src = this->buffer;
 
@@ -86,7 +86,7 @@ struct record_header
 		this->crc = crc32_fast(begin, size - sizeof(this->crc));
 	}
 
-	void write(file& f)
+	void write(const lock_type& lock, file& f)
 	{
 		const auto n_crc      = hton(this->crc);
 		const auto n_version  = hton(this->version);
@@ -106,7 +106,7 @@ struct record_header
 
 		std::memcpy(dst, &n_value_sz, sizeof(n_value_sz));
 
-		f.write(this->buffer, size);
+		f.locked_write(lock, this->buffer, size);
 	}
 };
 
@@ -159,7 +159,12 @@ public:
 
 	std::filesystem::path hint_path() const
 	{
-		return this->path().string() + ".hint";
+		return hint_path(this->path());
+	}
+
+	static std::filesystem::path hint_path(const std::filesystem::path& path)
+	{
+		return path.string() + ".hint";
 	}
 
 	bool size_greater_than(off64_t size) const
@@ -167,12 +172,12 @@ public:
 		return this->file_->size() > size;
 	}
 
-	void reopen(int flags, mode_t mode)
+	void reopen(int flags, mode_t mode) const
 	{
 		return this->file_->reopen(flags, mode);
 	}
 
-	void build_keydir(keydir& kd)
+	void build_keydir(keydir& kd) const
 	{
 		{
 			const auto hint_path = this->hint_path();
@@ -199,19 +204,20 @@ public:
 		});
 	}
 
-	value_type get(const keydir::info& info)
+	value_type get(const keydir::info& info) const
 	{
 		auto value = value_type{};
 		if (info.value_sz)
 		{
 			value.resize(info.value_sz);
-			this->file_->seek(info.value_pos);
-			this->file_->read(value.data(), value.size(), file::read_mode::count);
+			const auto lock = this->file_->lock();
+			this->file_->locked_seek(lock, info.value_pos);
+			this->file_->locked_read(lock, value.data(), value.size(), file::read_mode::count);
 		}
 		return value;
 	}
 
-	keydir::info put(const std::string_view& key, const std::string_view& value, version_type version)
+	keydir::info put(const std::string_view& key, const std::string_view& value, version_type version) const
 	{
 		if (key.length() > max_ksz)
 		{
@@ -223,7 +229,9 @@ public:
 			throw std::runtime_error{ fmt::format("Value length exceeds limit of {}", max_value_sz) };
 		}
 
-		this->file_->seek(0, SEEK_END);
+		const auto lock = this->file_->lock();
+
+		this->file_->locked_seek(lock, 0, SEEK_END);
 
 		auto header = record_header{};
 
@@ -242,13 +250,13 @@ public:
 			header.crc = crc32_fast(value.data(), value.length(), header.crc);
 		}
 
-		header.write(*this->file_);
+		header.write(lock, *this->file_);
 
-		this->file_->write(key.data(), key.length());
+		this->file_->locked_write(lock, key.data(), key.length());
 
-		const auto value_pos = this->file_->position();
+		const auto value_pos = this->file_->locked_position(lock);
 
-		this->file_->write(value.data(), value.length());
+		this->file_->locked_write(lock, value.data(), value.length());
 
 		return keydir::info{
 			.file_id   = this->id_,
@@ -258,14 +266,16 @@ public:
 		};
 	}
 
-	void del(const std::string_view& key, version_type version)
+	void del(const std::string_view& key, version_type version) const
 	{
 		if (key.length() > max_ksz)
 		{
 			throw std::runtime_error{ fmt::format("Key length exceeds limit of {}", max_ksz) };
 		}
 
-		this->file_->seek(0, SEEK_END);
+		const auto lock = this->file_->lock();
+
+		this->file_->locked_seek(lock, 0, SEEK_END);
 
 		auto header = record_header{};
 
@@ -279,14 +289,16 @@ public:
 			header.crc = crc32_fast(key.data(), key.length(), header.crc);
 		}
 
-		header.write(*this->file_);
+		header.write(lock, *this->file_);
 
-		this->file_->write(key.data(), key.length());
+		this->file_->locked_write(lock, key.data(), key.length());
 	}
 
-	void traverse(std::function<void(const record&)> callback)
+	void traverse(std::function<void(const record&)> callback) const
 	{
-		this->file_->seek(0);
+		const auto lock = this->file_->lock();
+
+		this->file_->locked_seek(lock, 0);
 
 		auto header = record_header{};
 
@@ -298,11 +310,11 @@ public:
 
 		for (;;)
 		{
-			const auto position = this->file_->position();
+			const auto position = this->file_->locked_position(lock);
 
 			auto crc = crc_type{};
 
-			if (!header.read(*this->file_, crc))
+			if (!header.read(lock, *this->file_, crc))
 			{
 				break;
 			}
@@ -311,7 +323,7 @@ public:
 			const auto key_buffer_size = std::max(key_buffer.capacity(), static_cast<std::string::size_type>(header.ksz));
 			key_buffer.resize(key_buffer_size);
 
-			this->file_->read(key_buffer.data(), header.ksz, file::read_mode::count);
+			this->file_->locked_read(lock, key_buffer.data(), header.ksz, file::read_mode::count);
 
 			crc = crc32_fast(key_buffer.data(), header.ksz, crc);
 
@@ -323,12 +335,12 @@ public:
 			// I'm using maximum length as delete marker.
 			if (header.value_sz != deleted_value_sz)
 			{
-				const auto value_pos = this->file_->position();
+				const auto value_pos = this->file_->locked_position(lock);
 
 				const auto value_buffer_size = std::max(value_buffer.capacity(), static_cast<std::string::size_type>(header.value_sz));
 				value_buffer.resize(value_buffer_size);
 
-				this->file_->read(value_buffer.data(), header.value_sz, file::read_mode::count);
+				this->file_->locked_read(lock, value_buffer.data(), header.value_sz, file::read_mode::count);
 
 				crc = crc32_fast(value_buffer.data(), header.value_sz, crc);
 
@@ -377,37 +389,42 @@ std::filesystem::path datafile::hint_path() const
 	return this->pimpl_->hint_path();
 }
 
+std::filesystem::path datafile::hint_path(const std::filesystem::path& path)
+{
+	return impl::hint_path(path);
+}
+
 bool datafile::size_greater_than(off64_t size) const
 {
 	return this->pimpl_->size_greater_than(size);
 }
 
-void datafile::reopen(int flags, mode_t mode)
+void datafile::reopen(int flags, mode_t mode) const
 {
 	return this->pimpl_->reopen(flags, mode);
 }
 
-void datafile::build_keydir(keydir& kd)
+void datafile::build_keydir(keydir& kd) const
 {
 	return this->pimpl_->build_keydir(kd);
 }
 
-value_type datafile::get(const keydir::info& info)
+value_type datafile::get(const keydir::info& info) const
 {
 	return this->pimpl_->get(info);
 }
 
-keydir::info datafile::put(const std::string_view& key, const std::string_view& value, version_type version)
+keydir::info datafile::put(const std::string_view& key, const std::string_view& value, version_type version) const
 {
 	return this->pimpl_->put(key, value, version);
 }
 
-void datafile::del(const std::string_view& key, version_type version)
+void datafile::del(const std::string_view& key, version_type version) const
 {
 	return this->pimpl_->del(key, version);
 }
 
-void datafile::traverse(std::function<void(const record&)> callback)
+void datafile::traverse(std::function<void(const record&)> callback) const
 {
 	return this->pimpl_->traverse(callback);
 }

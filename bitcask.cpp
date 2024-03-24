@@ -35,7 +35,7 @@ public:
 		const auto info = this->keydir_.get(key);
 		if (info)
 		{
-			return this->datadir_.get(*info);
+			return this->datadir_.get(info.value());
 		}
 		else
 		{
@@ -64,10 +64,9 @@ public:
 		return this->datadir_.merge(this->keydir_);
 	}
 
-	void clear()
+	static void clear(const std::filesystem::path& directory)
 	{
-		this->keydir_.clear();
-		this->datadir_.clear();
+		datadir::clear(directory);
 	}
 };
 
@@ -120,7 +119,7 @@ void bitcask::merge()
 	return this->pimpl_->merge();
 }
 
-void bitcask::clear()
+void bitcask::clear(const std::filesystem::__cxx11::path& directory)
 {
-	return this->pimpl_->clear();
+	impl::clear(directory);
 }

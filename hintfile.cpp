@@ -1,5 +1,6 @@
 #include "hintfile.h"
 #include "crc32.h"
+#include "hton.h"
 
 #include <fmt/format.h>
 
@@ -21,9 +22,9 @@ struct record_header
 
 	char buffer[size];
 
-	bool read(file& f, crc_type& crc)
+	bool read(const lock_type& lock, file& f, crc_type& crc)
 	{
-		if (f.read(this->buffer, size, file::read_mode::zero_or_count))
+		if (f.locked_read(lock, this->buffer, size, file::read_mode::zero_or_count))
 		{
 			auto src = this->buffer;
 
@@ -81,7 +82,7 @@ struct record_header
 		this->crc = crc32_fast(begin, size - sizeof(this->crc));
 	}
 
-	void write(file& f)
+	void write(const lock_type& lock, file& f)
 	{
 		const auto n_crc       = hton(this->crc);
 		const auto n_version   = hton(this->version);
@@ -105,7 +106,7 @@ struct record_header
 
 		std::memcpy(dst, &n_value_pos, sizeof(n_value_pos));
 
-		f.write(this->buffer, size);
+		f.locked_write(lock, this->buffer, size);
 	}
 };
 
@@ -121,9 +122,11 @@ class hintfile::impl
 		std::string_view key;
 	};
 
-	void traverse(std::function<void(const record&)> callback)
+	void traverse(std::function<void(const record&)> callback) const
 	{
-		this->file_->seek(0);
+		const auto lock = this->file_->lock();
+
+		this->file_->locked_seek(lock, 0);
 
 		auto rec = record{};
 
@@ -132,11 +135,11 @@ class hintfile::impl
 
 		for (;;)
 		{
-			const auto position = this->file_->position();
+			const auto position = this->file_->locked_position(lock);
 
 			auto crc = crc_type{};
 
-			if (!rec.header.read(*this->file_, crc))
+			if (!rec.header.read(lock, *this->file_, crc))
 			{
 				break;
 			}
@@ -145,7 +148,7 @@ class hintfile::impl
 			const auto key_buffer_size = std::max(key_buffer.capacity(), static_cast<std::string::size_type>(rec.header.ksz));
 			key_buffer.resize(key_buffer_size);
 
-			this->file_->read(key_buffer.data(), rec.header.ksz, file::read_mode::count);
+			this->file_->locked_read(lock, key_buffer.data(), rec.header.ksz, file::read_mode::count);
 
 			crc = crc32_fast(key_buffer.data(), rec.header.ksz, crc);
 
@@ -186,9 +189,11 @@ public:
 		});
 	}
 
-	void put(hintfile::hint&& rec)
+	void put(hintfile::hint&& rec) const
 	{
-		this->file_->seek(0, SEEK_END);
+		const auto lock = this->file_->lock();
+
+		this->file_->locked_seek(lock, 0, SEEK_END);
 
 		auto header = record_header{};
 
@@ -203,9 +208,9 @@ public:
 			header.crc = crc32_fast(rec.key.data(), rec.key.length(), header.crc);
 		}
 
-		header.write(*this->file_);
+		header.write(lock, *this->file_);
 
-		this->file_->write(rec.key.data(), rec.key.length());
+		this->file_->locked_write(lock, rec.key.data(), rec.key.length());
 	}
 };
 
@@ -223,12 +228,12 @@ std::filesystem::path hintfile::path() const
 	return this->pimpl_->path();
 }
 
-void hintfile::build_keydir(keydir& kd, file_id_type file_id)
+void hintfile::build_keydir(keydir& kd, file_id_type file_id) const
 {
 	return this->pimpl_->build_keydir(kd, file_id);
 }
 
-void hintfile::put(hint&& rec)
+void hintfile::put(hint&& rec) const
 {
 	this->pimpl_->put(std::move(rec));
 }

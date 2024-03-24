@@ -1,13 +1,15 @@
 #pragma once
 
 #include "basic_types.h"
+#include "locktypes.hpp"
 
+#include <memory>
 #include <string_view>
-#include <string>
-#include <unordered_map>
+#include <optional>
+#include <mutex>
+#include <shared_mutex>
+#include <utility>
 #include <functional>
-
-#include <sys/types.h>
 
 struct keydir_info final
 {
@@ -19,38 +21,19 @@ struct keydir_info final
 
 class keydir final
 {
-	struct string_hash
-	{
-		using is_transparent = void;
-
-		std::size_t operator()(const std::string& v) const
-		{
-			return std::hash<std::string>{}(v);
-		}
-
-		std::size_t operator()(const std::string_view& v) const
-		{
-			return std::hash<std::string_view>{}(v);
-		}
-
-		std::size_t operator()(const char* v) const
-		{
-			return std::hash<std::string_view>{}(v);
-		}
-	};
-
-	std::unordered_map<key_type, keydir_info, string_hash, std::equal_to<>> map_;
-	version_type                                                            version_;
+	class impl;
+	std::unique_ptr<impl> pimpl_;
 
 public:
 	using info = keydir_info;
 
-	keydir();
+	keydir() noexcept;
+	~keydir() noexcept;
 
 	version_type next_version();
 
-	const info* get(const std::string_view& key) const;
-	info*       get_mutable(const std::string_view& key);
+	std::optional<info>                              get(const std::string_view& key) const;
+	std::optional<std::pair<info*, write_lock_type>> get_mutable(const std::string_view& key);
 
 	bool empty() const;
 
@@ -59,8 +42,6 @@ public:
 
 	/// Returns true if the key was deleted, false if the key did not exist.
 	bool del(const std::string_view& key);
-
-	void clear();
 
 	bool traverse(std::function<bool(const std::string_view& key, const info& info)> callback);
 };

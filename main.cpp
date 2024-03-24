@@ -1,7 +1,9 @@
 #include "bitcask.h"
 #include "test_operation.h"
 #include "make_random_operations.h"
-#include "counter_timer.h"
+#include "counter_timer.hpp"
+#include "syncqueue.hpp"
+#include "config.h"
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <stdexcept>
@@ -12,6 +14,9 @@
 #include <type_traits>
 #include <unordered_map>
 #include <filesystem>
+#include <algorithm>
+#include <random>
+#include <future>
 
 using map_type = std::map<key_type, value_type>;
 
@@ -275,6 +280,65 @@ struct test_operation_executor
 	}
 };
 
+#ifdef BITCASK_THREAD_SAFE
+class worker
+{
+	bitcask&                              bc_;
+	synchronized_queue<std::string_view>& queue_;
+	std::thread                           thread_;
+	std::size_t                           get_count_;
+
+public:
+	explicit worker(bitcask& bc, synchronized_queue<std::string_view>& queue)
+	    : bc_{ bc }
+	    , queue_{ queue }
+	    , thread_{ std::bind(&worker::run, this) }
+	    , get_count_{}
+	{
+	}
+
+	~worker()
+	{
+		this->join();
+	}
+
+	void join()
+	{
+		if (this->thread_.joinable())
+		{
+			this->thread_.join();
+		}
+	}
+
+	auto get_count() const
+	{
+		return this->get_count_;
+	}
+
+private:
+	void run()
+	{
+		for (;;)
+		{
+			auto key = std::string_view{};
+			if (this->queue_.pop(key))
+			{
+				auto res = this->bc_.get(key);
+				assert(res.has_value());
+				(void)res;
+
+				++this->get_count_;
+			}
+			else
+			{
+				return;
+			}
+		}
+	}
+};
+
+#endif
+
 void run_test_operations_from_file(bitcask& bc)
 {
 	auto executor = test_operation_executor{ bc };
@@ -300,8 +364,8 @@ void run_test_01()
 
 void run_test_02()
 {
+	bitcask::clear(bitcask_dir); // !!!
 	auto bc = bitcask{ bitcask_dir };
-	bc.clear(); // !!!
 	fmt::print(stderr, "Run started\n");
 	run_test_operations_from_file(bc);
 	fmt::print(stderr, "Run finished\n");
@@ -346,6 +410,124 @@ void run_test_03()
 	verify_maps_are_equal(map1, map2);
 }
 
+void run_concurrency_test_01()
+{
+#ifdef BITCASK_THREAD_SAFE
+	fmt::print(stderr, "Load started\n");
+	auto bc  = bitcask{ bitcask_dir };
+	auto map = load_map(bc);
+	fmt::print(stderr, "Load finished\n");
+
+	auto keys = std::vector<std::string_view>{};
+	std::transform(map.begin(), map.end(), std::back_inserter(keys), [](const auto& pair) { return std::string_view{ pair.first }; });
+
+	using clock_type = std::chrono::high_resolution_clock;
+
+	//const auto num_threads = std::thread::hardware_concurrency();
+	const auto num_threads = 4u;
+
+	auto threads = std::vector<std::thread>{};
+
+	auto durations = std::vector<clock_type::duration>{};
+	durations.resize(num_threads);
+
+	while (threads.size() < num_threads)
+	{
+		auto& duration = durations[threads.size()];
+
+		threads.emplace_back([&]() {
+			auto my_keys = keys;
+
+			auto rd = std::random_device{};
+			auto re = std::default_random_engine{ rd() };
+
+			std::shuffle(my_keys.begin(), my_keys.end(), re);
+
+			const auto start = clock_type::now();
+
+			std::for_each(my_keys.begin(), my_keys.end(), [&](const auto& key) {
+				auto res = bc.get(key);
+				assert(res.has_value());
+				(void)res;
+			});
+
+			const auto finish = clock_type::now();
+			duration          = finish - start;
+		});
+	}
+
+	fmt::print(stderr, "Joining {} threads\n", num_threads);
+
+	std::for_each(threads.begin(), threads.end(), [](auto& thread) { thread.join(); });
+
+	const auto total_duration = std::accumulate(durations.begin(), durations.end(), clock_type::duration{});
+
+	fmt::print(stdout,
+	           "Total duration for {} threads: {}\n"
+	           "Keys gotten per thread: {}\n"
+	           "Avg per get: {}\n",
+	           num_threads,
+	           total_duration,
+	           keys.size(),
+	           total_duration / (num_threads * keys.size()));
+#else
+	fmt::print(stderr, "Concurrency test not possible\n");
+#endif
+}
+
+void run_concurrency_test_02()
+{
+#ifdef BITCASK_THREAD_SAFE
+	fmt::print(stderr, "Load started\n");
+	auto bc  = bitcask{ bitcask_dir };
+	auto map = load_map(bc);
+	fmt::print(stderr, "Load finished\n");
+
+	auto queue = synchronized_queue<std::string_view>{};
+	std::for_each(map.begin(), map.end(), [&](const auto& pair) { queue.push(std::string_view{ pair.first }); });
+
+	assert(queue.size() == map.size());
+
+	using clock_type = std::chrono::high_resolution_clock;
+
+	const auto num_workers = std::thread::hardware_concurrency();
+	//const auto num_workers = 1u;
+
+	auto workers = std::vector<std::unique_ptr<worker>>{};
+
+	const auto start = clock_type::now();
+
+	while (workers.size() < num_workers)
+	{
+		workers.push_back(std::make_unique<worker>(bc, queue));
+	}
+
+	std::for_each(workers.begin(), workers.end(), [](auto& worker) { worker->join(); });
+
+	assert(queue.empty());
+
+	const auto finish = clock_type::now();
+
+	std::for_each(workers.begin(), workers.end(), [](auto& worker) { fmt::print(stdout, "Worker get count: {}\n", worker->get_count()); });
+
+	workers.clear();
+
+	const auto duration = finish - start;
+
+	fmt::print(stdout,
+	           "Total duration for {} workers: {}\n"
+	           "Keys gotten per thread: {}\n"
+	           "Avg per key: {}\n",
+	           num_workers,
+	           duration,
+	           map.size(),
+	           duration / map.size());
+
+#else
+	fmt::print(stderr, "Concurrency test not possible\n");
+#endif
+}
+
 void run_merge()
 {
 	auto bc = bitcask{ bitcask_dir };
@@ -370,8 +552,10 @@ int main()
 		//run_merge();
 		//run_test_01();
 		//run_test_02();
-		run_test_03();
+		//run_test_03();
 		//run_merge();
+		//run_concurrency_test_01();
+		run_concurrency_test_02();
 	}
 	catch (const std::exception& e)
 	{

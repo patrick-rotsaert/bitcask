@@ -23,7 +23,7 @@ public:
 
 	std::filesystem::path path() const;
 
-	void build_keydir(keydir& kd, file_id_type file_id);
+	void build_keydir(keydir& kd, file_id_type file_id) const;
 
 	struct hint final
 	{
@@ -33,5 +33,5 @@ public:
 		std::string_view key;
 	};
 
-	void put(hint&& rec);
+	void put(hint&& rec) const;
 };

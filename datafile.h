@@ -34,14 +34,16 @@ public:
 	std::filesystem::path path() const;
 	std::filesystem::path hint_path() const;
 
+	static std::filesystem::path hint_path(const std::filesystem::path& path);
+
 	bool size_greater_than(off64_t size) const;
-	void reopen(int flags, mode_t mode);
+	void reopen(int flags, mode_t mode) const;
 
-	void build_keydir(keydir& kd);
+	void build_keydir(keydir& kd) const;
 
-	value_type   get(const keydir::info& info);
-	keydir::info put(const std::string_view& key, const std::string_view& value, version_type version);
-	void         del(const std::string_view& key, version_type version);
+	value_type   get(const keydir::info& info) const;
+	keydir::info put(const std::string_view& key, const std::string_view& value, version_type version) const;
+	void         del(const std::string_view& key, version_type version) const;
 
 	struct record
 	{
@@ -56,5 +58,5 @@ public:
 		std::optional<value_info> value;
 	};
 
-	void traverse(std::function<void(const record&)> callback);
+	void traverse(std::function<void(const record&)> callback) const;
 };
