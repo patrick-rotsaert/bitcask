@@ -13,55 +13,20 @@ set(EXTRA_PUBLIC_HEADERS)
 
 if(${PROJECT_NAME_UC}_INSTALL)
 	# When install rules are included, then the fmt and spdlog packages must be pre-installed.
-	# If these libraries are not pre-installed, then they will be fetched from github (see src/bitcask/CMakeLists.txt)
+	# If not, then they will be fetched from github (see included fmtlib.cmake and spdlog.cmake)
 	# and then their install targets would be included, which is probably not what you want.
-	find_package(fmt REQUIRED)
+	project_find_package(fmt REQUIRED)
 	if(${PROJECT_NAME_UC}_USE_SPDLOG)
-		find_package(spdlog REQUIRED)
+		project_find_package(spdlog REQUIRED)
 	endif()
 endif()
-
-# FIXME: improve this
-if(TARGET Boost::system AND TARGET Boost::filesystem AND TARGET Boost::date_time)
-	message("Boost targets already defined")
-else()
-	find_package(Boost REQUIRED COMPONENTS system filesystem date_time)
-endif()
-
-include(FetchContent)
 
 # {fmtlib}
-# If this project is included as source, the fmt::fmt target may already be defined.
-if(NOT TARGET fmt::fmt)
-	# Prefer the system package
-	find_package(fmt QUIET)
-	if(NOT fmt_FOUND)
-		set(FMT_INSTALL "${${PROJECT_NAME_UC}_INSTALL}")
-		FetchContent_Declare(fmt
-		  GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-		  GIT_TAG 10.0.0
-		)
-		FetchContent_MakeAvailable(fmt)
-	endif()
-endif()
+include(${PROJECT_SOURCE_DIR}/cmake/common/fmtlib.cmake)
 
 # spdlog
 if(${PROJECT_NAME_UC}_USE_SPDLOG)
-	# If this project is included as source, the spdlog::spdlog target may already be defined.
-	if(NOT TARGET spdlog::spdlog)
-		# Prefer the system package
-		find_package(spdlog QUIET)
-		if(NOT spdlog_FOUND)
-			set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-			set(SPDLOG_FMT_EXTERNAL ON)
-			set(SPDLOG_INSTALL "${${PROJECT_NAME_UC}_INSTALL}")
-			FetchContent_Declare(spdlog
-			  GIT_REPOSITORY https://github.com/gabime/spdlog.git
-			  GIT_TAG v1.13.0
-			)
-			FetchContent_MakeAvailable(spdlog)
-		endif()
-	endif()
+	include(${PROJECT_SOURCE_DIR}/cmake/common/spdlog.cmake)
 	list(APPEND EXTRA_PUBLIC_LIBRARIES spdlog::spdlog)
 	list(APPEND EXTRA_SOURCES spdlog_logger.cpp spdlog_logger.h)
 	if(${PROJECT_NAME_UC}_INSTALL)
@@ -71,7 +36,7 @@ endif()
 
 # Threads
 if(${PROJECT_NAME_UC}_THREAD_SAFE)
-	find_package(Threads REQUIRED)
+	project_find_package(Threads REQUIRED)
 	list(APPEND EXTRA_PUBLIC_LIBRARIES Threads::Threads)
 endif()
 
@@ -115,9 +80,6 @@ add_project_library(${PROJECT_NAME}
 		${EXTRA_PUBLIC_HEADERS}
 
 	PUBLIC_LIBRARIES
-		Boost::system
-		Boost::filesystem
-		Boost::date_time
 		fmt::fmt
 		${EXTRA_PUBLIC_LIBRARIES}
 

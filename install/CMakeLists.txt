@@ -31,11 +31,10 @@ write_basic_package_version_file(
     COMPATIBILITY SameMajorVersion
 )
 
-# @PROJECT_DEPENDENCIES@ is referenced by cmake/project-config.cmake.in
-set(PROJECT_DEPENDENCIES)
+set(PROJECT_DEPENDENCIES ${${PROJECT_NAME}_DEPENDENCIES})
 
 configure_file(
-	${PROJECT_BASE_DIR}/cmake/project-config.cmake.in
+	${PROJECT_SOURCE_DIR}/cmake/common/project-config.cmake.in
 	${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake
 	@ONLY
 )

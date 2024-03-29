@@ -26,11 +26,55 @@
 
 namespace bitcask {
 
+using namespace fmt::literals;
+
 namespace {
 
 constexpr auto max_ksz          = std::numeric_limits<ksz_type>::max();
 constexpr auto deleted_value_sz = std::numeric_limits<value_sz_type>::max();
 constexpr auto max_value_sz     = deleted_value_sz - 1u;
+
+constexpr auto datafilename_prefix = std::string_view{ "bc" };
+constexpr auto datafilename_suffix = std::string_view{ ".d" };
+constexpr auto hintfilename_suffix = std::string_view{ ".h" };
+
+std::string regex_escape(std::string_view input)
+{
+	auto escaped = std::string{};
+	escaped.reserve(input.length());
+	for (const auto c : input)
+	{
+		switch (c)
+		{
+		case '^':
+		case '$':
+		case '\\':
+		case '.':
+		case '*':
+		case '+':
+		case '?':
+		case '(':
+		case ')':
+		case '[':
+		case ']':
+		case '{':
+		case '}':
+		case '|':
+		case '<':
+		case '>':
+		case '-':
+		case '=':
+		case '!':
+		case ':':
+			escaped.push_back('\\');
+			// fall-through
+		default:
+			escaped.push_back(c);
+			break;
+		}
+	}
+	return escaped;
+}
 
 struct record_header
 {
@@ -121,9 +165,11 @@ struct record_header
 
 file_id_type get_id_from_file_name(std::string_view name)
 {
-	if (name.starts_with("bitcask-") && name.ends_with(".data") && name.length() == 8u + file_id_nibbles + 5u)
+	if ((datafilename_prefix.empty() || name.starts_with(datafilename_prefix)) &&
+	    (datafilename_suffix.empty() || name.ends_with(datafilename_suffix)) &&
+	    name.length() == datafilename_prefix.length() + file_id_nibbles + datafilename_suffix.length())
 	{
-		const auto first = name.data() + 8u;
+		const auto first = name.data() + datafilename_prefix.length();
 		const auto last  = first + file_id_nibbles;
 		auto       id    = file_id_type{};
 		auto       res   = std::from_chars(first, last, id, 16);
@@ -137,11 +183,18 @@ file_id_type get_id_from_file_name(std::string_view name)
 
 } // namespace
 
-std::regex datafile::name_regex{ fmt::format(R"~(^bitcask-[0-9a-f]{{{}}}\.data)~", file_id_nibbles) };
+std::regex datafile::name_regex{ fmt::format("^{prefix}[0-9a-f]{{{nibbles}}}{suffix}$",
+	                                         "prefix"_a  = regex_escape(datafilename_prefix),
+	                                         "suffix"_a  = regex_escape(datafilename_suffix),
+	                                         "nibbles"_a = file_id_nibbles) };
 
 std::string datafile::make_filename(file_id_type id)
 {
-	return fmt::format("bitcask-{0:0{1}x}.data", id, file_id_nibbles);
+	return fmt::format("{prefix}{id:0{nibbles}x}{suffix}",
+	                   "id"_a      = id,
+	                   "prefix"_a  = datafilename_prefix,
+	                   "suffix"_a  = datafilename_suffix,
+	                   "nibbles"_a = file_id_nibbles);
 }
 
 class datafile::impl final
@@ -173,7 +226,7 @@ public:
 
 	static std::filesystem::path hint_path(const std::filesystem::path& path)
 	{
-		return path.string() + ".hint";
+		return path.string().append(hintfilename_suffix);
 	}
 
 	bool size_greater_than(off64_t size) const

@@ -52,6 +52,7 @@ configure_file(
 	@ONLY
 )
 
+set(ENV{LD_LIBRARY_PATH} ${CMAKE_BINARY_DIR}/lib)
 exec(
 	COMMAND ${CPACK_COMMAND} --config package.cmake
 	WORKING_DIRECTORY ${BUILD_DIR}

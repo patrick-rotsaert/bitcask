@@ -13,33 +13,28 @@ include(GNUInstallDirs)
 
 enable_testing()
 
-string(TOUPPER ${PROJECT_NAME} PROJECT_NAME_UC)
-string(COMPARE EQUAL "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}" ${PROJECT_NAME_UC}_IS_TOP_LEVEL)
+include(cmake/common/vars.cmake)
 
-option(${PROJECT_NAME_UC}_BUILD_EXAMPLES "Build the examples" "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
-option(${PROJECT_NAME_UC}_TEST "Build the tests" "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
-option(${PROJECT_NAME_UC}_RUN_UNIT_TESTS_ON_BUILD "Run the unit tests during build" "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
-option(${PROJECT_NAME_UC}_INSTALL "Include install rules for ${PROJECT_NAME}" "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
-option(${PROJECT_NAME_UC}_CPACK "Include cpack rules for ${PROJECT_NAME}" "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
+option(${PROJECT_NAME_UC}_BUILD_EXAMPLES "Build the examples." "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
+option(${PROJECT_NAME_UC}_TEST "Build the tests." "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
+option(${PROJECT_NAME_UC}_RUN_UNIT_TESTS_ON_BUILD "Run the unit tests during build." "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
+option(${PROJECT_NAME_UC}_INSTALL "Include install rules for ${PROJECT_NAME}." "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
+option(${PROJECT_NAME_UC}_CPACK "Include cpack rules for ${PROJECT_NAME}. Implies ${PROJECT_NAME_UC}_INSTALL." "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
 
 option(${PROJECT_NAME_UC}_USE_SPDLOG "Use spdlog as the default logger in the ${PROJECT_NAME} library" "${${PROJECT_NAME_UC}_IS_TOP_LEVEL}")
 option(${PROJECT_NAME_UC}_THREAD_SAFE "Compile with locking code" true)
 
-include(cmake/buildvars.cmake)
-include(cmake/paths.cmake)
-include(cmake/version.cmake)
-include(cmake/gtest.cmake)
+if(${PROJECT_NAME_UC}_CPACK)
+	set(${PROJECT_NAME_UC}_INSTALL true)
+endif()
 
-# Let ${PROJECT_NAME}_SHARED_LIBS override BUILD_SHARED_LIBS
+# Let ${PROJECT_NAME_UC}_SHARED_LIBS override BUILD_SHARED_LIBS
 if(DEFINED ${PROJECT_NAME_UC}_SHARED_LIBS)
     set(BUILD_SHARED_LIBS "${${PROJECT_NAME_UC}_SHARED_LIBS}")
 endif()
 
-# Set the component names
-# These are prefixed with ${PROJECT_NAME} to avoid name clashes with component names
-# of projects that include this library as source.
-set(COMPONENT_RUNTIME ${PROJECT_NAME}_runtime)
-set(COMPONENT_DEVELOPMENT ${PROJECT_NAME}_development)
+include(cmake/common/project.cmake)
+include(cmake/common/paths.cmake)
 
 add_subdirectory(src)
 
